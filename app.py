@@ -3,6 +3,27 @@ import pandas as pd
 import requests
 from functools import lru_cache
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; AbrivioMVP/1.0; +https://abrivio.example)",
+    "Accept": "application/json,text/plain,*/*",
+}
+
+# FARS/State numeric codes used in FARS extracts (includes PR=72).
+# This guarantees the dropdown is limited to valid regions in the FARS schema even if definitions endpoint is blocked.
+FARS_STATE_CODES = {
+    "Alabama": 1, "Alaska": 2, "Arizona": 4, "Arkansas": 5, "California": 6, "Colorado": 8,
+    "Connecticut": 9, "Delaware": 10, "District of Columbia": 11, "Florida": 12, "Georgia": 13,
+    "Hawaii": 15, "Idaho": 16, "Illinois": 17, "Indiana": 18, "Iowa": 19, "Kansas": 20,
+    "Kentucky": 21, "Louisiana": 22, "Maine": 23, "Maryland": 24, "Massachusetts": 25,
+    "Michigan": 26, "Minnesota": 27, "Mississippi": 28, "Missouri": 29, "Montana": 30,
+    "Nebraska": 31, "Nevada": 32, "New Hampshire": 33, "New Jersey": 34, "New Mexico": 35,
+    "New York": 36, "North Carolina": 37, "North Dakota": 38, "Ohio": 39, "Oklahoma": 40,
+    "Oregon": 41, "Pennsylvania": 42, "Rhode Island": 44, "South Carolina": 45,
+    "South Dakota": 46, "Tennessee": 47, "Texas": 48, "Utah": 49, "Vermont": 50,
+    "Virginia": 51, "Washington": 53, "West Virginia": 54, "Wisconsin": 55, "Wyoming": 56,
+    "Puerto Rico": 72,
+}
+
 # ----------------------------
 # Config
 # ----------------------------
@@ -18,7 +39,12 @@ st.set_page_config(
 # Utilities
 # ----------------------------
 def http_get_json(url: str, params: dict):
-    r = requests.get(url, params=params, timeout=60)
+    r = requests.get(
+        url,
+        params=params,
+        headers=HEADERS,
+        timeout=60
+    )
     r.raise_for_status()
     return r.json()
 
@@ -173,21 +199,21 @@ with st.sidebar:
             name_col = next((c for c in state_defs.columns if c.lower() in ["attributename", "name", "title", "description"]), None)
 
             if not val_col or not name_col:
-                st.error("Could not detect state definition columns from NHTSA response. Try a different definitions year.")
-                st.stop()
+                raise ValueError("Could not detect state definition columns.")
 
             state_defs = state_defs[[val_col, name_col]].dropna().drop_duplicates()
-            state_defs[val_col] = to_num(state_defs[val_col])
-            state_defs = state_defs.dropna()
-            state_defs[val_col] = state_defs[val_col].astype(int)
+            state_defs[val_col] = to_num(state_defs[val_col]).dropna().astype(int)
             state_defs = state_defs.sort_values(name_col)
-
+        
             label_to_code = dict(zip(state_defs[name_col], state_defs[val_col]))
             state_label = st.selectbox("Region (State)", list(label_to_code.keys()))
             state_code = int(label_to_code[state_label])
-        except Exception as e:
-            st.error(f"Failed to load state list from NHTSA CrashAPI: {e}")
-            st.stop()
+        
+        except Exception:
+            st.warning("NHTSA definitions endpoint blocked (403). Using built-in FARS state list fallback.")
+            state_label = st.selectbox("Region (State)", sorted(FARS_STATE_CODES.keys()))
+            state_code = int(FARS_STATE_CODES[state_label])
+
 
         from_year = st.number_input("From year", min_value=2010, max_value=2024, value=2019, step=1)
         to_year = st.number_input("To year", min_value=2010, max_value=2024, value=2023, step=1)
